@@ -2,31 +2,44 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <!-- Prevent double-tap zoom and keep full viewport on mobile -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <!-- Fullscreen on iOS home-screen shortcut -->
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <title>Faminto</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { background: #000; overflow: hidden; font-family: 'Segoe UI', sans-serif; }
-    canvas { display: block; }
+    body {
+      background: #000;
+      overflow: hidden;
+      font-family: 'Segoe UI', sans-serif;
+      /* Prevent long-press context menus while playing */
+      -webkit-touch-callout: none;
+      -webkit-user-select: none;
+      user-select: none;
+    }
+    canvas { display: block; touch-action: none; }
 
+    /* ── In-game HUD ─────────────────────────────────── */
     #hud {
       position: absolute; top: 16px; left: 16px;
-      color: #fff; font-size: 18px;
+      color: #fff; font-size: clamp(14px, 4vw, 18px);
       text-shadow: 1px 1px 3px #000; pointer-events: none;
     }
     #timer {
       position: absolute; top: 16px; left: 50%; transform: translateX(-50%);
-      color: #fff; font-size: 32px; font-weight: bold;
+      color: #fff; font-size: clamp(22px, 7vw, 32px); font-weight: bold;
       text-shadow: 2px 2px 4px #000; pointer-events: none;
     }
     #leaderboard {
       position: absolute; top: 16px; right: 16px;
-      color: #fff; font-size: 14px;
-      background: rgba(0,0,0,0.5); padding: 10px 14px;
-      border-radius: 8px; min-width: 160px; pointer-events: none;
+      color: #fff; font-size: clamp(11px, 3vw, 14px);
+      background: rgba(0,0,0,0.5); padding: 8px 12px;
+      border-radius: 8px; min-width: 130px; pointer-events: none;
     }
     #leaderboard h3 {
-      margin-bottom: 6px; font-size: 13px;
+      margin-bottom: 6px; font-size: clamp(10px, 2.5vw, 13px);
       text-transform: uppercase; letter-spacing: 1px; color: #ffd700;
     }
     #leaderboard .lb-row { margin: 3px 0; }
@@ -39,71 +52,113 @@
       border-radius: 6px; pointer-events: none;
     }
 
-    /* ── Overlay ── */
+    /* ── Overlay / Welcome screen ────────────────────── */
     #overlay {
       position: absolute; inset: 0;
-      background: rgba(0,0,0,0.85);
+      background: rgba(0,0,0,0.88);
       display: flex; flex-direction: column;
-      align-items: center; justify-content: center; color: #fff;
+      align-items: center; justify-content: center;
+      color: #fff;
+      /* Scrollable on very small screens */
+      overflow-y: auto;
+      padding: 24px 16px 40px;
     }
-    #overlay h1 { font-size: 52px; margin-bottom: 8px; }
-    #overlay .subtitle { font-size: 18px; color: #aaa; margin-bottom: 32px; }
-
-    #overlay input {
-      padding: 10px 16px; font-size: 18px; border-radius: 8px;
-      border: none; margin-bottom: 24px; text-align: center; width: 260px;
+    #overlay h1 {
+      font-size: clamp(32px, 10vw, 52px);
+      margin-bottom: 6px;
+    }
+    #overlay .subtitle {
+      font-size: clamp(13px, 4vw, 18px);
+      color: #aaa;
+      margin-bottom: 28px;
+      text-align: center;
     }
 
-    .btn-row { display: flex; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; justify-content: center; }
+    #overlay input[type="text"] {
+      padding: 12px 16px;
+      font-size: clamp(15px, 4.5vw, 18px);
+      border-radius: 10px;
+      border: none;
+      margin-bottom: 20px;
+      text-align: center;
+      width: min(280px, 90vw);
+      /* Bigger tap target on mobile */
+      min-height: 48px;
+    }
+
+    .btn-row {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 14px;
+      flex-wrap: wrap;
+      justify-content: center;
+      width: 100%;
+      max-width: 400px;
+    }
 
     .btn {
-      padding: 12px 28px; font-size: 17px; border-radius: 8px;
-      border: none; cursor: pointer; font-weight: bold;
+      /* At least 48×48 px touch target (Google guideline) */
+      padding: clamp(10px, 3vw, 14px) clamp(16px, 5vw, 28px);
+      font-size: clamp(14px, 4vw, 17px);
+      border-radius: 10px;
+      border: none;
+      cursor: pointer;
+      font-weight: bold;
+      min-height: 48px;
+      /* Fill row evenly on very narrow screens */
+      flex: 1 1 120px;
     }
     .btn-solo   { background: #2196F3; color: #fff; }
     .btn-create { background: #4CAF50; color: #fff; }
     .btn-join   { background: #FF9800; color: #fff; }
     .btn-editor { background: #9C27B0; color: #fff; }
-    .btn:hover { opacity: 0.85; }
+    .btn:active { opacity: 0.75; transform: scale(0.97); }
 
     #join-panel {
       display: none; flex-direction: column;
-      align-items: center; gap: 10px; margin-top: 8px;
+      align-items: center; gap: 10px; margin-top: 6px;
     }
     #join-panel input {
-      padding: 10px 16px; font-size: 20px; border-radius: 8px;
-      border: none; text-align: center; width: 160px;
+      padding: 12px 16px;
+      font-size: clamp(18px, 6vw, 24px);
+      border-radius: 10px;
+      border: none; text-align: center;
+      width: min(180px, 70vw);
+      min-height: 52px;
       text-transform: uppercase; letter-spacing: 4px; font-weight: bold;
     }
     #join-panel button {
-      padding: 10px 24px; font-size: 16px; border-radius: 8px;
+      padding: 12px 28px; font-size: 16px; border-radius: 10px;
       border: none; background: #FF9800; color: #fff; cursor: pointer;
+      min-height: 48px; font-weight: bold;
     }
 
     #room-display {
       display: none; flex-direction: column;
-      align-items: center; margin-top: 16px;
+      align-items: center; margin-top: 14px;
       background: rgba(255,255,255,0.1); padding: 16px 24px;
-      border-radius: 12px;
+      border-radius: 12px; width: min(320px, 92vw);
     }
     #room-display p { font-size: 14px; color: #aaa; margin-bottom: 6px; }
     #room-display .code {
-      font-size: 42px; font-weight: bold; letter-spacing: 8px; color: #ffd700;
+      font-size: clamp(28px, 9vw, 42px);
+      font-weight: bold; letter-spacing: 8px; color: #ffd700;
     }
-    #room-display .hint { font-size: 13px; color: #aaa; margin-top: 6px; }
+    #room-display .hint { font-size: 13px; color: #aaa; margin-top: 6px; text-align: center; }
     #room-display button {
-      margin-top: 14px; padding: 12px 32px; font-size: 18px;
-      border-radius: 8px; border: none; background: #2196F3;
-      color: #fff; cursor: pointer; font-weight: bold;
+      margin-top: 14px; padding: 14px 32px; font-size: 18px;
+      border-radius: 10px; border: none; background: #2196F3;
+      color: #fff; cursor: pointer; font-weight: bold; min-height: 52px;
     }
 
     #error-msg {
       color: #ff5555; font-size: 15px; margin-top: 8px; min-height: 20px;
+      text-align: center;
     }
 
     #overlay.hidden { display: none; }
 
-    /* ── Round end ── */
+    /* ── Round end ───────────────────────────────────── */
     #round-end {
       position: absolute; inset: 0;
       background: rgba(0,0,0,0.8);
@@ -111,8 +166,11 @@
       align-items: center; justify-content: center;
       color: #fff; pointer-events: none;
     }
-    #round-end h2 { font-size: 40px; color: #ffd700; margin-bottom: 16px; }
-    #round-end .lb-item { font-size: 20px; margin: 6px 0; }
+    #round-end h2 {
+      font-size: clamp(26px, 8vw, 40px);
+      color: #ffd700; margin-bottom: 16px;
+    }
+    #round-end .lb-item { font-size: clamp(15px, 4vw, 20px); margin: 6px 0; }
     #round-end.hidden { display: none; }
   </style>
 </head>
@@ -122,24 +180,30 @@
     <h1>⚫ Faminto</h1>
     <p class="subtitle">Feed the hole. Rule the map.</p>
 
-    <input id="nameInput" type="text" placeholder="Enter your name" maxlength="20" />
+    <input id="nameInput" type="text" placeholder="Enter your name"
+           maxlength="20" autocomplete="off" autocorrect="off"
+           autocapitalize="words" spellcheck="false" />
 
     <div class="btn-row">
       <button class="btn btn-solo"   id="btnSolo">Solo Game</button>
       <button class="btn btn-create" id="btnCreate">Create Room</button>
+    </div>
+    <div class="btn-row">
       <button class="btn btn-join"   id="btnJoin">Join Room</button>
       <button class="btn btn-editor" id="btnEditor">🗺 Map Editor</button>
     </div>
 
     <div id="join-panel">
-      <input id="roomCodeInput" type="text" placeholder="CODE" maxlength="6" />
+      <input id="roomCodeInput" type="text" placeholder="CODE" maxlength="6"
+             autocomplete="off" autocorrect="off" autocapitalize="characters"
+             spellcheck="false" inputmode="text" />
       <button id="btnJoinConfirm">Join</button>
     </div>
 
     <div id="room-display">
       <p>Share this code with friends:</p>
       <div class="code" id="roomCodeDisplay"></div>
-      <div class="hint">Waiting for players... or start now</div>
+      <div class="hint">Waiting for players… or start now</div>
       <button id="btnStartRoom">Start Game</button>
     </div>
 

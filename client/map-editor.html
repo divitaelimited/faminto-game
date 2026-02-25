@@ -391,6 +391,7 @@
       position: absolute;
       top: 0; left: 0;
       image-rendering: pixelated;
+      touch-action: none; /* Prevent scroll/zoom gestures hijacking canvas */
     }
 
     /* Canvas overlay messages */
@@ -549,6 +550,40 @@
       pointer-events: none;
       display: none;
     }
+
+    /* ── Mobile responsive ── */
+    @media (max-width: 700px) {
+      #left-panel, #right-panel { display: none; }
+      #topbar { padding: 0 8px; overflow-x: auto; }
+      #topbar .logo { font-size: 16px; margin-right: 8px; }
+      #mapNameInput { width: 110px; font-size: 13px; }
+      .tb-btn { padding: 5px 8px; font-size: 11px; }
+      #objCount { display: none; }
+      #mobile-toolbar { display: flex !important; }
+      #canvas-area { padding-bottom: 64px; }
+    }
+    #mobile-toolbar {
+      display: none;
+      position: fixed;
+      bottom: 0; left: 0; right: 0;
+      height: 64px;
+      background: var(--panel);
+      border-top: 1px solid var(--border);
+      align-items: center;
+      justify-content: space-around;
+      z-index: 50;
+      padding: 0 4px;
+    }
+    .mob-tool-btn {
+      display: flex; flex-direction: column; align-items: center;
+      gap: 2px; background: none; border: none;
+      color: var(--muted); font-size: 9px;
+      font-family: 'Space Grotesk', sans-serif;
+      cursor: pointer; padding: 6px 8px; border-radius: 8px;
+      min-width: 44px; min-height: 44px; justify-content: center;
+    }
+    .mob-tool-btn .icon { font-size: 19px; line-height: 1; }
+    .mob-tool-btn.active { color: var(--accent); background: rgba(91,94,244,0.15); }
 
     /* Scrollbar styling */
     ::-webkit-scrollbar { width: 6px; }
@@ -729,6 +764,28 @@
 
 <!-- Hidden file input for loading -->
 <input type="file" id="fileInput" accept=".json" style="display:none" />
+
+<!-- Mobile bottom toolbar (visible only on small screens) -->
+<div id="mobile-toolbar">
+  <button class="mob-tool-btn active" data-tool="place" id="mob-tool-place">
+    <span class="icon">✚</span>Place
+  </button>
+  <button class="mob-tool-btn" data-tool="select" id="mob-tool-select">
+    <span class="icon">↖</span>Select
+  </button>
+  <button class="mob-tool-btn" data-tool="move" id="mob-tool-move">
+    <span class="icon">✥</span>Move
+  </button>
+  <button class="mob-tool-btn" data-tool="erase" id="mob-tool-erase">
+    <span class="icon">✕</span>Erase
+  </button>
+  <button class="mob-tool-btn" id="mob-btn-undo">
+    <span class="icon">↩</span>Undo
+  </button>
+  <button class="mob-tool-btn" id="mob-btn-save" style="color:var(--accent2)">
+    <span class="icon">💾</span>Save
+  </button>
+</div>
 
 <script>
 // ════════════════════════════════════════════════════
@@ -1561,6 +1618,119 @@ function showToast(msg, type = 'default') {
   clearTimeout(t._timer);
   t._timer = setTimeout(() => { t.className = ''; }, 2400);
 }
+
+// ── Touch support ─────────────────────────────────────
+// Converts TouchEvents into synthetic MouseEvents so all
+// existing mousedown/mousemove/mouseup logic works on mobile.
+
+function touchToMouse(type, touch) {
+  canvas.dispatchEvent(new MouseEvent(type, {
+    bubbles: true, cancelable: true,
+    clientX: touch.clientX,
+    clientY: touch.clientY,
+    button: 0, buttons: type === 'mouseup' ? 0 : 1
+  }));
+}
+
+let touch0 = null; // primary finger (drawing/moving)
+let touch1 = null; // second finger (pinch-zoom)
+let pinchDist0 = null;
+
+canvas.addEventListener('touchstart', (e) => {
+  e.preventDefault();
+  if (e.touches.length === 1) {
+    touch0 = e.touches[0];
+    touch1 = null;
+    pinchDist0 = null;
+    touchToMouse('mousedown', touch0);
+  } else if (e.touches.length === 2) {
+    // Second finger added — cancel current draw, start pinch-zoom pan
+    if (isDragging) {
+      isDragging = false; dragMode = null; dragObj = null;
+      render();
+    }
+    touch0 = e.touches[0];
+    touch1 = e.touches[1];
+    const dx = touch1.clientX - touch0.clientX;
+    const dy = touch1.clientY - touch0.clientY;
+    pinchDist0 = Math.sqrt(dx * dx + dy * dy);
+  }
+}, { passive: false });
+
+canvas.addEventListener('touchmove', (e) => {
+  e.preventDefault();
+  if (e.touches.length === 1 && !touch1) {
+    touch0 = e.touches[0];
+    touchToMouse('mousemove', touch0);
+  } else if (e.touches.length === 2) {
+    const t0 = e.touches[0];
+    const t1 = e.touches[1];
+    const dx = t1.clientX - t0.clientX;
+    const dy = t1.clientY - t0.clientY;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+
+    if (pinchDist0 !== null) {
+      // Pinch-zoom
+      const midX = (t0.clientX + t1.clientX) / 2 - canvas.getBoundingClientRect().left;
+      const midY = (t0.clientY + t1.clientY) / 2 - canvas.getBoundingClientRect().top;
+      const factor = dist / pinchDist0;
+      const newZoom = Math.max(0.15, Math.min(8, zoom * factor));
+      panX = midX - (midX - panX) * (newZoom / zoom);
+      panY = midY - (midY - panY) * (newZoom / zoom);
+      zoom = newZoom;
+      document.getElementById('statZoom').textContent = Math.round(zoom * 100) + '%';
+      pinchDist0 = dist;
+      render();
+    }
+  }
+}, { passive: false });
+
+canvas.addEventListener('touchend', (e) => {
+  e.preventDefault();
+  if (e.touches.length === 0) {
+    touchToMouse('mouseup', touch0 || e.changedTouches[0]);
+    touch0 = null; touch1 = null; pinchDist0 = null;
+  } else if (e.touches.length === 1) {
+    touch1 = null; pinchDist0 = null;
+    touch0 = e.touches[0];
+  }
+}, { passive: false });
+
+canvas.addEventListener('touchcancel', (e) => {
+  touchToMouse('mouseup', touch0 || e.changedTouches[0]);
+  touch0 = null; touch1 = null; pinchDist0 = null;
+  isDragging = false; isPanning = false; dragMode = null; dragObj = null;
+  render();
+}, { passive: false });
+
+// ── Mobile toolbar wiring ─────────────────────────────
+document.querySelectorAll('.mob-tool-btn[data-tool]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    setTool(btn.dataset.tool);
+    document.querySelectorAll('.mob-tool-btn[data-tool]').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+  });
+});
+
+// Keep desktop + mobile tool buttons in sync
+const _origSetTool = setTool;
+// Wrap setTool to also update mobile buttons
+function setTool(name) {
+  currentTool = name;
+  document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active'));
+  const btn = document.getElementById('tool-' + name);
+  if (btn) btn.classList.add('active');
+  document.querySelectorAll('.mob-tool-btn[data-tool]').forEach(b =>
+    b.classList.toggle('active', b.dataset.tool === name));
+  const cursors = { place: 'crosshair', select: 'default', move: 'move', resize: 'se-resize', erase: 'not-allowed' };
+  canvas.style.cursor = cursors[name] || 'crosshair';
+  updateHint();
+}
+
+document.getElementById('mob-btn-undo').addEventListener('click', undo);
+document.getElementById('mob-btn-save').addEventListener('click', () => {
+  document.getElementById('btnSave').click();
+});
 
 // ── Initial render ────────────────────────────────────
 resizeCanvas();
