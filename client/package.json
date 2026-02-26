@@ -1,7 +1,7 @@
 {
-  "name": "holeio-client",
+  "name": "faminto-client",
   "version": "1.0.0",
-  "description": "Hole.io clone client",
+  "description": "Faminto game client",
   "type": "module",
   "scripts": {
     "dev": "vite",
